@@ -1,0 +1,8 @@
+[Unit]
+Description=Daily koji repo regeneration
+After=httpd.service
+Requisite=httpd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/src/kojicron/kojicron.py --wait --continue-on-failure

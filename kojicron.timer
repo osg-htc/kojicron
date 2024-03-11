@@ -1,0 +1,6 @@
+[Unit]
+Description=Daily koji repo regeneration
+Wants=network-online.target
+
+[Timer]
+OnCalendar = *-*-* 04:00:00
