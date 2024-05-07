@@ -171,7 +171,7 @@ class KojiCron:
 
         if wait:
             _log.info("Launching regen-repo for tag %s", tag)
-            ret = self.koji("regen-repo", tag)
+            ret = self.koji("regen-repo", "--wait", tag)
         else:
             _log.info("Queueing regen-repo for tag %s", tag)
             ret = self.koji("regen-repo", "--nowait", tag)
