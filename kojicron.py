@@ -7,14 +7,14 @@ import logging
 import logging.handlers
 import subprocess
 import sys
-from typing import Collection, List, Optional, Set
-
+from typing import Collection, List, NamedTuple, Optional, Set
 
 ERR_CONFIG = 3
 ERR_CANT_GET_TAG_LIST = 4
 ERR_NO_TAGS_TO_REGEN = 5
 ERR_CANT_AUTH_TO_KOJI = 6
 ERR_CANT_REGEN_REPO = 7
+ERR_CANT_PARSE_OUTPUT = 8
 
 CFG_SECTION = "kojicron"
 
@@ -56,6 +56,11 @@ class ConfigError(ProgramError):
         return f"Config error: {super().__str__()}"
 
 
+class KojiVersions(NamedTuple):
+    client: List[int]
+    hub: List[int]
+
+
 class KojiCron:
     """
     A class for interacting with Koji via the cli.
@@ -79,6 +84,7 @@ class KojiCron:
             "--config=" + self.config_path,
             "--profile=" + self.config_section,
         ]
+        self.koji_versions = self.get_koji_versions()
 
     def koji(self, *args, **kwargs):
         """
@@ -105,6 +111,30 @@ class KojiCron:
             cmd,
             **kwargs,
         )
+
+    def get_koji_versions(self) -> KojiVersions:
+        ret = self.koji("version")
+        client = []
+        hub = []
+        for line in ret.stdout.splitlines():
+            if ":" not in line:
+                continue
+            key, val = line.split(":", 1)
+            val = val.strip()
+            try:
+                val_list = [int(it) for it in val.split(".")]
+                if key == "Client":
+                    client = val_list
+                elif key == "Hub":
+                    hub = val_list
+            except ValueError as err:
+                raise KojiError(
+                    ERR_CANT_PARSE_OUTPUT,
+                    f"Couldn't parse Koji version.\n"
+                    f"Stdout:\n{ret.stdout}\n"
+                    f"Stderr:\n{ret.stderr}",
+                )
+        return KojiVersions(client=client, hub=hub)
 
     def get_tag_list(self) -> List[str]:
         """
@@ -168,13 +198,21 @@ class KojiCron:
             otherwise it just means that the task was submitted.
         """
         global _log
+        KOJI_VERSION_NEEDS_MAKE_TASK = [1, 35]
+        # ^^ https://docs.pagure.org/koji/release_notes/release_notes_1.35/#kojira
 
         if wait:
             _log.info("Launching regen-repo for tag %s", tag)
-            ret = self.koji("regen-repo", "--wait", tag)
+            if self.koji_versions.client >= KOJI_VERSION_NEEDS_MAKE_TASK:
+                ret = self.koji("regen-repo", "--make-task", "--wait", tag)
+            else:
+                ret = self.koji("regen-repo", "--wait", tag)
         else:
             _log.info("Queueing regen-repo for tag %s", tag)
-            ret = self.koji("regen-repo", "--nowait", tag)
+            if self.koji_versions.client >= KOJI_VERSION_NEEDS_MAKE_TASK:
+                ret = self.koji("regen-repo", "--make-task", "--nowait", tag)
+            else:
+                ret = self.koji("regen-repo", "--nowait", tag)
         if ret.returncode != 0:
             _log.error(
                 "Return code %d doing regen-repo %s.\nStdout:\n%s\nStderr:\n%s",
