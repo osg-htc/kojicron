@@ -9,13 +9,12 @@ import subprocess
 import sys
 from typing import Collection, List, NamedTuple, Optional, Set
 
-
 ERR_CONFIG = 3
 ERR_CANT_GET_TAG_LIST = 4
 ERR_NO_TAGS_TO_REGEN = 5
 ERR_CANT_AUTH_TO_KOJI = 6
 ERR_CANT_REGEN_REPO = 7
-ERR_KOJI_MISC = 8
+ERR_CANT_PARSE_OUTPUT = 8
 
 CFG_SECTION = "kojicron"
 
@@ -130,13 +129,12 @@ class KojiCron:
                     hub = val_list
             except ValueError as err:
                 raise KojiError(
-                    ERR_KOJI_MISC,
+                    ERR_CANT_PARSE_OUTPUT,
                     f"Couldn't parse Koji version.\n"
                     f"Stdout:\n{ret.stdout}\n"
                     f"Stderr:\n{ret.stderr}",
                 )
         return KojiVersions(client=client, hub=hub)
-
 
     def get_tag_list(self) -> List[str]:
         """
@@ -200,16 +198,18 @@ class KojiCron:
             otherwise it just means that the task was submitted.
         """
         global _log
+        KOJI_VERSION_NEEDS_MAKE_TASK = [1, 35]
+        # ^^ https://docs.pagure.org/koji/release_notes/release_notes_1.35/#kojira
 
         if wait:
             _log.info("Launching regen-repo for tag %s", tag)
-            if self.koji_versions.client >= [1, 35]:
+            if self.koji_versions.client >= KOJI_VERSION_NEEDS_MAKE_TASK:
                 ret = self.koji("regen-repo", "--make-task", "--wait", tag)
             else:
                 ret = self.koji("regen-repo", "--wait", tag)
         else:
             _log.info("Queueing regen-repo for tag %s", tag)
-            if self.koji_versions.client >= [1, 35]:
+            if self.koji_versions.client >= KOJI_VERSION_NEEDS_MAKE_TASK:
                 ret = self.koji("regen-repo", "--make-task", "--nowait", tag)
             else:
                 ret = self.koji("regen-repo", "--nowait", tag)
